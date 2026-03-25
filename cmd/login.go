@@ -25,10 +25,13 @@ type LoginCmd struct {
 func (c *LoginCmd) Run() error {
 	clientID := c.ClientID
 	if clientID == "" {
+		clientID = os.Getenv("EXPOSE_GITHUB_CLIENT_ID")
+	}
+	if clientID == "" {
 		clientID = defaultGitHubClientID
 	}
-	if clientID == "REPLACE_WITH_GITHUB_CLIENT_ID" {
-		return fmt.Errorf("GitHub OAuth App client ID not set; set EXPOSE_GITHUB_CLIENT_ID env var or rebuild with the correct client ID")
+	if clientID == "" {
+		return fmt.Errorf("GitHub OAuth App client ID not set; set EXPOSE_GITHUB_CLIENT_ID env var")
 	}
 
 	// Step 1: request device code

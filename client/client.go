@@ -53,25 +53,34 @@ func (c *Client) Run() error {
 			PrintStatus(fmt.Sprintf("reconnecting in %s...", backoff))
 			time.Sleep(backoff)
 			if backoff < 30*time.Second {
-			backoff *= 2
-		}
+				backoff *= 2
+			}
 		}
 		first = false
 
-		if err := c.connect(subdomain); err != nil {
-			PrintStatus(fmt.Sprintf("disconnected: %v", err))
+		err := c.connect(subdomain)
+		if err == nil {
+			backoff = time.Second
 			continue
 		}
-		// Clean reconnect — reset backoff
-		backoff = time.Second
+		// Don't retry on permanent errors
+		if fatal, ok := err.(*fatalError); ok {
+			return fatal.err
+		}
+		PrintStatus(fmt.Sprintf("disconnected: %v", err))
 	}
 }
+
+// fatalError wraps errors that should not trigger reconnection.
+type fatalError struct{ err error }
+
+func (e *fatalError) Error() string { return e.err.Error() }
 
 func (c *Client) connect(subdomain string) error {
 	serverURL := fmt.Sprintf("wss://expose.%s/connect", c.cfg.Server)
 
 	ctx := context.Background()
-	conn, _, err := websocket.Dial(ctx, serverURL, &websocket.DialOptions{
+	conn, resp, err := websocket.Dial(ctx, serverURL, &websocket.DialOptions{
 		HTTPHeader: http.Header{
 			"Authorization": {"Bearer " + c.cfg.Token},
 			"X-Subdomain":   {subdomain},
@@ -79,6 +88,22 @@ func (c *Client) connect(subdomain string) error {
 		},
 	})
 	if err != nil {
+		if resp != nil {
+			body, _ := io.ReadAll(resp.Body)
+			msg := strings.TrimSpace(string(body))
+			switch resp.StatusCode {
+			case http.StatusConflict:
+				return &fatalError{fmt.Errorf("%s.%s is already in use", subdomain, c.cfg.Server)}
+			case http.StatusUnauthorized:
+				return &fatalError{fmt.Errorf("authentication failed: run 'expose login'")}
+			case http.StatusForbidden:
+				return &fatalError{fmt.Errorf("access denied: GitHub user not allowed")}
+			default:
+				if msg != "" {
+					return fmt.Errorf("server error %d: %s", resp.StatusCode, msg)
+				}
+			}
+		}
 		return fmt.Errorf("connecting to server: %w", err)
 	}
 	defer conn.CloseNow()

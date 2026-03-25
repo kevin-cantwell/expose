@@ -1,0 +1,6 @@
+# Copy this to local.mk (gitignored) and fill in your values.
+# local.mk is included by the Makefile for deployment settings.
+
+DROPLET_IP   := your.server.ip
+DROPLET_USER := root
+SSH_KEY      := ~/.ssh/your_key

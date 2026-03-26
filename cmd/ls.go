@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -43,9 +42,7 @@ func (c *LsCmd) Run() error {
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
-		// Check if the process is still alive
-		if !isProcessAlive(s.PID) {
-			// Clean up stale state file
+		if !IsProcessAlive(s.PID) {
 			os.Remove(filepath.Join(dir, entry.Name()))
 			continue
 		}
@@ -58,23 +55,14 @@ func (c *LsCmd) Run() error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "SUBDOMAIN\tURL\tLOCAL\tSINCE")
+	fmt.Fprintln(w, "SUBDOMAIN\tURL\tLOCAL\tMODE\tSINCE")
 	for _, s := range active {
 		since := time.Since(s.StartedAt).Truncate(time.Second)
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Subdomain, s.PublicURL, s.LocalAddr, since)
+		mode := "foreground"
+		if s.Background {
+			mode = "background"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.Subdomain, s.PublicURL, s.LocalAddr, mode, since)
 	}
 	return w.Flush()
-}
-
-func isProcessAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	// On Unix, FindProcess always succeeds; send signal 0 to check existence
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
 }

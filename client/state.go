@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/kevin-cantwell/expose/internal/state"
 )
 
-func writeState(sub, publicURL, localAddr string) (cleanup func(), err error) {
+func writeState(s state.TunnelState) (cleanup func(), err error) {
 	dir, err := tunnelsDir()
 	if err != nil {
 		return nil, err
@@ -18,20 +17,11 @@ func writeState(sub, publicURL, localAddr string) (cleanup func(), err error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("creating tunnels dir: %w", err)
 	}
-
-	s := state.TunnelState{
-		Subdomain: sub,
-		PublicURL: publicURL,
-		LocalAddr: localAddr,
-		PID:       os.Getpid(),
-		StartedAt: time.Now(),
-	}
 	data, _ := json.Marshal(s)
-	path := filepath.Join(dir, sub+".json")
+	path := filepath.Join(dir, s.Subdomain+".json")
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return nil, fmt.Errorf("writing state: %w", err)
 	}
-
 	return func() { os.Remove(path) }, nil
 }
 

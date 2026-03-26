@@ -7,20 +7,24 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	words "github.com/kevin-cantwell/expose/internal"
+	"github.com/kevin-cantwell/expose/internal/state"
 )
 
 // Config holds client configuration.
 type Config struct {
-	LocalAddr string // e.g. ":3000" or "localhost:3000"
-	Subdomain string // empty → auto-generate
-	Server    string // e.g. "example.com" — set via EXPOSE_SERVER
-	Token     string // GitHub OAuth token
+	LocalAddr  string // e.g. ":3000" or "localhost:3000"
+	Subdomain  string // empty → auto-generate
+	Server     string // e.g. "example.com" — set via EXPOSE_SERVER
+	Token      string // GitHub OAuth token
+	Background bool   // run in background mode (log to file instead of TUI)
+	LogFile    string // path to log file when Background is true
 }
 
 // Client manages the tunnel to the expose server.
@@ -29,13 +33,23 @@ type Client struct {
 	tui *TUI
 }
 
-// New creates a new Client.
-func New(cfg Config) *Client {
+// New creates a new Client. Returns an error if the log file cannot be opened.
+func New(cfg Config) (*Client, error) {
 	// Normalize local addr
 	if cfg.LocalAddr != "" && !strings.Contains(cfg.LocalAddr, ":") {
 		cfg.LocalAddr = ":" + cfg.LocalAddr
 	}
-	return &Client{cfg: cfg, tui: newTUI()}
+	var w io.Writer = os.Stdout
+	plain := false
+	if cfg.Background && cfg.LogFile != "" {
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			return nil, fmt.Errorf("opening log file: %w", err)
+		}
+		w = f
+		plain = true
+	}
+	return &Client{cfg: cfg, tui: newTUI(w, plain)}, nil
 }
 
 // Run connects to the server and starts tunneling, reconnecting on failure.
@@ -50,7 +64,7 @@ func (c *Client) Run() error {
 
 	for {
 		if !first {
-			PrintStatus(fmt.Sprintf("reconnecting in %s...", backoff))
+			c.tui.PrintStatus(fmt.Sprintf("reconnecting in %s...", backoff))
 			time.Sleep(backoff)
 			if backoff < 30*time.Second {
 				backoff *= 2
@@ -67,7 +81,7 @@ func (c *Client) Run() error {
 		if fatal, ok := err.(*fatalError); ok {
 			return fatal.err
 		}
-		PrintStatus(fmt.Sprintf("disconnected: %v", err))
+		c.tui.PrintStatus(fmt.Sprintf("disconnected: %v", err))
 	}
 }
 
@@ -83,7 +97,7 @@ func (c *Client) connect(subdomain string) error {
 		localCheck = "localhost" + localCheck
 	}
 	if tc, err := net.DialTimeout("tcp", localCheck, 500*time.Millisecond); err != nil {
-		fmt.Printf("warning: nothing listening on %s yet — connecting anyway\n", c.cfg.LocalAddr)
+		c.tui.PrintStatus(fmt.Sprintf("warning: nothing listening on %s yet — connecting anyway", c.cfg.LocalAddr))
 	} else {
 		tc.Close()
 	}
@@ -129,9 +143,17 @@ func (c *Client) connect(subdomain string) error {
 	publicURL := "https://" + subdomain + "." + c.cfg.Server
 
 	// Write state file for `expose ls`
-	cleanup, err := writeState(subdomain, publicURL, c.cfg.LocalAddr)
+	cleanup, err := writeState(state.TunnelState{
+		Subdomain:  subdomain,
+		PublicURL:  publicURL,
+		LocalAddr:  c.cfg.LocalAddr,
+		PID:        os.Getpid(),
+		StartedAt:  time.Now(),
+		Background: c.cfg.Background,
+		LogFile:    c.cfg.LogFile,
+	})
 	if err != nil {
-		PrintStatus(fmt.Sprintf("warning: couldn't write state file: %v", err))
+		c.tui.PrintStatus(fmt.Sprintf("warning: couldn't write state file: %v", err))
 	} else {
 		defer cleanup()
 	}
@@ -270,4 +292,3 @@ func yamuxConfig() *yamux.Config {
 	cfg.ConnectionWriteTimeout = 10 * time.Second
 	return cfg
 }
-

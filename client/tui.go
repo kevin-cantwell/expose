@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -27,12 +28,16 @@ type RequestLog struct {
 
 // TUI manages terminal output for the expose client.
 type TUI struct {
+	w        io.Writer
+	plain    bool // plain text mode for log files (no ANSI, with timestamps)
 	requests chan RequestLog
 	done     chan struct{}
 }
 
-func newTUI() *TUI {
+func newTUI(w io.Writer, plain bool) *TUI {
 	return &TUI{
+		w:        w,
+		plain:    plain,
 		requests: make(chan RequestLog, 64),
 		done:     make(chan struct{}),
 	}
@@ -40,13 +45,18 @@ func newTUI() *TUI {
 
 // Start prints the connection banner and starts the request log loop.
 func (t *TUI) Start(publicURL, localAddr string) {
-	fmt.Printf("\n%sexpose%s connected\n\n", colorCyan, colorReset)
-	fmt.Printf("  URL:    %s%s%s\n", colorGreen, publicURL, colorReset)
-	fmt.Printf("  Local:  http://%s\n", displayAddr(localAddr))
-	fmt.Printf("  Time:   %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Printf("%s%-6s  %-40s  %s  %s%s\n", colorGray, "METHOD", "PATH", "STATUS", "LATENCY", colorReset)
-	fmt.Printf("%s%s%s\n", colorGray, repeat("─", 65), colorReset)
-
+	if t.plain {
+		fmt.Fprintf(t.w, "%s expose connected\n", time.Now().Format(time.RFC3339))
+		fmt.Fprintf(t.w, "  URL:   %s\n", publicURL)
+		fmt.Fprintf(t.w, "  Local: http://%s\n\n", displayAddr(localAddr))
+	} else {
+		fmt.Fprintf(t.w, "\n%sexpose%s connected\n\n", colorCyan, colorReset)
+		fmt.Fprintf(t.w, "  URL:    %s%s%s\n", colorGreen, publicURL, colorReset)
+		fmt.Fprintf(t.w, "  Local:  http://%s\n", displayAddr(localAddr))
+		fmt.Fprintf(t.w, "  Time:   %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
+		fmt.Fprintf(t.w, "%s%-6s  %-40s  %s  %s%s\n", colorGray, "METHOD", "PATH", "STATUS", "LATENCY", colorReset)
+		fmt.Fprintf(t.w, "%s%s%s\n", colorGray, repeat("─", 65), colorReset)
+	}
 	go t.loop()
 }
 
@@ -63,25 +73,37 @@ func (t *TUI) Stop() {
 	close(t.done)
 }
 
+// PrintStatus prints a status update (reconnecting, warnings, etc).
+func (t *TUI) PrintStatus(msg string) {
+	if t.plain {
+		fmt.Fprintf(t.w, "%s %s\n", time.Now().Format(time.RFC3339), msg)
+	} else {
+		fmt.Fprintf(t.w, "%s[%s] %s%s\n", colorYellow, time.Now().Format("15:04:05"), msg, colorReset)
+	}
+}
+
 func (t *TUI) loop() {
 	for {
 		select {
 		case <-t.done:
 			return
 		case r := <-t.requests:
-			fmt.Printf("%s%-6s%s  %-40s  %s%d%s  %s\n",
-				colorForMethod(r.Method), r.Method, colorReset,
-				truncate(r.Path, 40),
-				statusColor(r.Status), r.Status, colorReset,
-				r.Duration.Round(time.Millisecond),
-			)
+			if t.plain {
+				fmt.Fprintf(t.w, "%s %-6s %s %d %s\n",
+					r.Time.Format(time.RFC3339),
+					r.Method, r.Path, r.Status,
+					r.Duration.Round(time.Millisecond),
+				)
+			} else {
+				fmt.Fprintf(t.w, "%s%-6s%s  %-40s  %s%d%s  %s\n",
+					colorForMethod(r.Method), r.Method, colorReset,
+					truncate(r.Path, 40),
+					statusColor(r.Status), r.Status, colorReset,
+					r.Duration.Round(time.Millisecond),
+				)
+			}
 		}
 	}
-}
-
-// PrintStatus prints a status update (reconnecting, etc).
-func PrintStatus(msg string) {
-	fmt.Printf("%s[%s] %s%s\n", colorYellow, time.Now().Format("15:04:05"), msg, colorReset)
 }
 
 func statusColor(status int) string {
@@ -129,4 +151,3 @@ func repeat(s string, n int) string {
 	}
 	return string(b)
 }
-

@@ -69,17 +69,10 @@ func (t *TUI) loop() {
 		case <-t.done:
 			return
 		case r := <-t.requests:
-			color := colorGreen
-			if r.Status >= 400 {
-				color = colorYellow
-			}
-			if r.Status >= 500 {
-				color = colorRed
-			}
 			fmt.Printf("%s%-6s%s  %-40s  %s%d%s  %s\n",
-				colorCyan, r.Method, colorReset,
+				colorForMethod(r.Method), r.Method, colorReset,
 				truncate(r.Path, 40),
-				color, r.Status, colorReset,
+				statusColor(r.Status), r.Status, colorReset,
 				r.Duration.Round(time.Millisecond),
 			)
 		}
@@ -137,6 +130,3 @@ func repeat(s string, n int) string {
 	return string(b)
 }
 
-// suppress unused warnings
-var _ = statusColor
-var _ = colorForMethod

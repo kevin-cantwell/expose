@@ -77,6 +77,17 @@ type fatalError struct{ err error }
 func (e *fatalError) Error() string { return e.err.Error() }
 
 func (c *Client) connect(subdomain string) error {
+	// Pre-flight check: warn if nothing is listening on the local port yet
+	localCheck := c.cfg.LocalAddr
+	if strings.HasPrefix(localCheck, ":") {
+		localCheck = "localhost" + localCheck
+	}
+	if tc, err := net.DialTimeout("tcp", localCheck, 500*time.Millisecond); err != nil {
+		fmt.Printf("warning: nothing listening on %s yet — connecting anyway\n", c.cfg.LocalAddr)
+	} else {
+		tc.Close()
+	}
+
 	serverURL := fmt.Sprintf("wss://expose.%s/connect", c.cfg.Server)
 
 	ctx := context.Background()
@@ -160,7 +171,7 @@ func (c *Client) handleStream(stream net.Conn) {
 		c.tui.Log(RequestLog{
 			Time:     start,
 			Method:   req.Method,
-			Path:     req.URL.Path,
+			Path:     req.URL.RequestURI(),
 			Status:   http.StatusBadGateway,
 			Duration: time.Since(start),
 		})

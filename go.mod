@@ -3,17 +3,20 @@ module github.com/kevin-cantwell/expose
 go 1.25.7
 
 require (
-	github.com/alecthomas/kong v1.14.0 // indirect
-	github.com/caddyserver/certmagic v0.25.2 // indirect
+	github.com/alecthomas/kong v1.14.0
+	github.com/caddyserver/certmagic v0.25.2
+	github.com/coder/websocket v1.8.14
+	github.com/hashicorp/yamux v0.1.2
+	github.com/libdns/digitalocean v0.0.0-20250606071607-dfa7af5c2e31
+)
+
+require (
 	github.com/caddyserver/zerossl v0.1.5 // indirect
-	github.com/coder/websocket v1.8.14 // indirect
 	github.com/digitalocean/godo v1.148.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
-	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/libdns/digitalocean v0.0.0-20250606071607-dfa7af5c2e31 // indirect
 	github.com/libdns/libdns v1.1.1 // indirect
 	github.com/mholt/acmez/v3 v3.1.6 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
@@ -30,5 +33,4 @@ require (
 	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.6.0 // indirect
 	golang.org/x/tools v0.42.0 // indirect
-	nhooyr.io/websocket v1.8.17 // indirect
 )

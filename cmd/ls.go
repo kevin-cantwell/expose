@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+
+	"github.com/kevin-cantwell/expose/internal/state"
 )
 
 // LsCmd lists active tunnels on this machine by reading state files.
@@ -28,7 +30,7 @@ func (c *LsCmd) Run() error {
 		return fmt.Errorf("reading tunnels dir: %w", err)
 	}
 
-	var active []tunnelState
+	var active []state.TunnelState
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -37,7 +39,7 @@ func (c *LsCmd) Run() error {
 		if err != nil {
 			continue
 		}
-		var s tunnelState
+		var s state.TunnelState
 		if err := json.Unmarshal(data, &s); err != nil {
 			continue
 		}
@@ -62,15 +64,6 @@ func (c *LsCmd) Run() error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Subdomain, s.PublicURL, s.LocalAddr, since)
 	}
 	return w.Flush()
-}
-
-// tunnelState is the on-disk format for a running tunnel.
-type tunnelState struct {
-	Subdomain string    `json:"subdomain"`
-	PublicURL string    `json:"public_url"`
-	LocalAddr string    `json:"local_addr"`
-	PID       int       `json:"pid"`
-	StartedAt time.Time `json:"started_at"`
 }
 
 func isProcessAlive(pid int) bool {

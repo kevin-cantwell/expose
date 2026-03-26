@@ -6,15 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-)
 
-type tunnelState struct {
-	Subdomain string    `json:"subdomain"`
-	PublicURL string    `json:"public_url"`
-	LocalAddr string    `json:"local_addr"`
-	PID       int       `json:"pid"`
-	StartedAt time.Time `json:"started_at"`
-}
+	"github.com/kevin-cantwell/expose/internal/state"
+)
 
 func writeState(sub, publicURL, localAddr string) (cleanup func(), err error) {
 	dir, err := tunnelsDir()
@@ -25,7 +19,7 @@ func writeState(sub, publicURL, localAddr string) (cleanup func(), err error) {
 		return nil, fmt.Errorf("creating tunnels dir: %w", err)
 	}
 
-	s := tunnelState{
+	s := state.TunnelState{
 		Subdomain: sub,
 		PublicURL: publicURL,
 		LocalAddr: localAddr,

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 )
+
+var validSubdomain = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$`)
 
 // Config holds server configuration.
 type Config struct {
@@ -88,12 +91,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.handleConnect(w, r)
 			return
 		}
-		// Simple status page: list active tunnels
-		w.Header().Set("Content-Type", "text/plain")
-		s.tunnels.Range(func(k, v any) bool {
-			fmt.Fprintf(w, "%s.%s\n", k, s.cfg.Domain)
-			return true
-		})
+		http.NotFound(w, r)
 		return
 	}
 
@@ -127,8 +125,8 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	subdomain := r.Header.Get("X-Subdomain")
 	localAddr := r.Header.Get("X-Local-Addr")
-	if subdomain == "" || subdomain == "expose" {
-		http.Error(w, "invalid subdomain", http.StatusBadRequest)
+	if !validSubdomain.MatchString(subdomain) || subdomain == "expose" {
+		http.Error(w, "invalid subdomain: must match ^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$", http.StatusBadRequest)
 		return
 	}
 

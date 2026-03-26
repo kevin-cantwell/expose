@@ -154,7 +154,8 @@ func (c *Client) handleStream(stream net.Conn) {
 	start := time.Now()
 
 	// Read the HTTP request forwarded from the server
-	req, err := http.ReadRequest(bufio.NewReader(stream))
+	br := bufio.NewReader(stream)
+	req, err := http.ReadRequest(br)
 	if err != nil {
 		return
 	}
@@ -184,11 +185,64 @@ func (c *Client) handleStream(stream net.Conn) {
 		return
 	}
 
-	// Read the response from local and write back to the stream
-	resp, err := http.ReadResponse(bufio.NewReader(local), req)
+	// Read the response from local
+	localBr := bufio.NewReader(local)
+	resp, err := http.ReadResponse(localBr, req)
 	if err != nil {
 		return
 	}
+
+	// WebSocket upgrade: pipe both connections bidirectionally after the 101.
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		resp.Body.Close()
+
+		// Write the 101 response back to the server-side tunnel stream.
+		if err := resp.Write(stream); err != nil {
+			return
+		}
+
+		c.tui.Log(RequestLog{
+			Time:     start,
+			Method:   req.Method,
+			Path:     req.URL.Path,
+			Status:   resp.StatusCode,
+			Duration: time.Since(start),
+		})
+
+		// Flush any bytes already buffered from each side.
+		var streamLeadBytes, localLeadBytes []byte
+		if br.Buffered() > 0 {
+			streamLeadBytes = make([]byte, br.Buffered())
+			io.ReadFull(br, streamLeadBytes)
+		}
+		if localBr.Buffered() > 0 {
+			localLeadBytes = make([]byte, localBr.Buffered())
+			io.ReadFull(localBr, localLeadBytes)
+		}
+
+		done := make(chan struct{}, 2)
+		go func() {
+			if len(localLeadBytes) > 0 {
+				stream.Write(localLeadBytes)
+			}
+			io.Copy(stream, local)
+			done <- struct{}{}
+		}()
+		go func() {
+			if len(streamLeadBytes) > 0 {
+				local.Write(streamLeadBytes)
+			}
+			io.Copy(local, stream)
+			done <- struct{}{}
+		}()
+		<-done
+		// Close both ends to unblock the other goroutine.
+		stream.Close()
+		local.Close()
+		<-done
+		return
+	}
+
 	defer resp.Body.Close()
 
 	if err := resp.Write(stream); err != nil {

@@ -18,42 +18,36 @@ func buildTLSConfig(domain, certDir, email string, staging bool) (*tls.Config, e
 		return nil, fmt.Errorf("DO_AUTH_TOKEN env var required for DNS-01 challenge")
 	}
 
-	certmagic.DefaultACME.Agreed = true
-	if email != "" {
-		certmagic.DefaultACME.Email = email
-	}
+	ca := certmagic.LetsEncryptProductionCA
 	if staging {
-		certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
+		ca = certmagic.LetsEncryptStagingCA
 	}
 
-	certmagic.Default.Storage = &certmagic.FileStorage{Path: certDir}
-
-	dnsProvider := &digitalocean.Provider{
-		APIToken: doToken,
-	}
-
-	magic := certmagic.NewDefault()
+	// Use a dedicated cache whose GetConfigForCert returns our config.
+	// certmagic.NewDefault() would hand background renewals certmagic.Default,
+	// which has no DNS-01 solver — so the wildcard cert could never renew.
+	var magic *certmagic.Config
+	cache := certmagic.NewCache(certmagic.CacheOptions{
+		GetConfigForCert: func(certmagic.Certificate) (*certmagic.Config, error) {
+			return magic, nil
+		},
+	})
+	magic = certmagic.New(cache, certmagic.Config{
+		Storage: &certmagic.FileStorage{Path: certDir},
+	})
 	magic.Issuers = []certmagic.Issuer{
 		certmagic.NewACMEIssuer(magic, certmagic.ACMEIssuer{
-			CA:                      certmagic.LetsEncryptProductionCA,
-			Email:                   email,
-			Agreed:                  true,
-			DNS01Solver:             &certmagic.DNS01Solver{DNSManager: certmagic.DNSManager{DNSProvider: dnsProvider}},
+			CA:     ca,
+			Email:  email,
+			Agreed: true,
+			DNS01Solver: &certmagic.DNS01Solver{
+				DNSManager: certmagic.DNSManager{
+					DNSProvider: &digitalocean.Provider{APIToken: doToken},
+				},
+			},
 			DisableHTTPChallenge:    true,
 			DisableTLSALPNChallenge: true,
 		}),
-	}
-	if staging {
-		magic.Issuers = []certmagic.Issuer{
-			certmagic.NewACMEIssuer(magic, certmagic.ACMEIssuer{
-				CA:                      certmagic.LetsEncryptStagingCA,
-				Email:                   email,
-				Agreed:                  true,
-				DNS01Solver:             &certmagic.DNS01Solver{DNSManager: certmagic.DNSManager{DNSProvider: dnsProvider}},
-				DisableHTTPChallenge:    true,
-				DisableTLSALPNChallenge: true,
-			}),
-		}
 	}
 
 	// Obtain certificates for the wildcard and the apex domain

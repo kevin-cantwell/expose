@@ -3,6 +3,8 @@ package client
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -79,6 +81,10 @@ func (c *Client) Run() error {
 		}
 		// Don't retry on permanent errors
 		if fatal, ok := err.(*fatalError); ok {
+			if c.cfg.Background {
+				// stderr is detached in background mode; make sure the log has it.
+				c.tui.PrintStatus(fmt.Sprintf("fatal: %v", fatal.err))
+			}
 			return fatal.err
 		}
 		c.tui.PrintStatus(fmt.Sprintf("disconnected: %v", err))
@@ -128,6 +134,11 @@ func (c *Client) connect(subdomain string) error {
 					return fmt.Errorf("server error %d: %s", resp.StatusCode, msg)
 				}
 			}
+		}
+		// Certificate problems won't fix themselves by retrying.
+		var certErr *tls.CertificateVerificationError
+		if errors.As(err, &certErr) {
+			return &fatalError{fmt.Errorf("TLS certificate for expose.%s is invalid (server-side cert problem): %w", c.cfg.Server, certErr)}
 		}
 		return fmt.Errorf("connecting to server: %w", err)
 	}

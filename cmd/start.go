@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
+	"time"
 
 	words "github.com/kevin-cantwell/expose/internal"
 )
@@ -60,7 +62,33 @@ func (c *StartCmd) Run() error {
 		return fmt.Errorf("starting background tunnel: %w", err)
 	}
 
+	// Wait until the child either connects (writes its state file) or exits,
+	// so failures surface here instead of leaving a silently retrying process.
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	deadline := time.After(10 * time.Second)
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+	connected := false
+wait:
+	for {
+		select {
+		case <-exited:
+			return fmt.Errorf("background tunnel exited:\n%s", tailFile(logFile, 5))
+		case <-tick.C:
+			if s, err := ReadState(subdomain); err == nil && s.PID == cmd.Process.Pid {
+				connected = true
+				break wait
+			}
+		case <-deadline:
+			break wait
+		}
+	}
+
 	publicURL := "https://" + subdomain + "." + server
+	if !connected {
+		fmt.Printf("Warning: tunnel hasn't connected yet and is still retrying:\n%s\n\n", tailFile(logFile, 5))
+	}
 	fmt.Printf("Started background tunnel\n\n")
 	fmt.Printf("  Subdomain: %s\n", subdomain)
 	fmt.Printf("  URL:       %s\n", publicURL)
@@ -69,4 +97,17 @@ func (c *StartCmd) Run() error {
 	fmt.Printf("Use 'expose logs %s -f' to follow logs\n", subdomain)
 	fmt.Printf("Use 'expose stop %s' to stop\n", subdomain)
 	return nil
+}
+
+// tailFile returns the last n non-empty lines of a file, indented for display.
+func tailFile(path string, n int) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "  (no log output)"
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return "  " + strings.Join(lines, "\n  ")
 }
